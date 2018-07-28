@@ -11,9 +11,12 @@ import scipy.stats as st
 from sklearn import linear_model
 from pylab import mpl
 from time import time
+from scipy.optimize import fsolve
 
-mpl.rcParams['font.sans-serif'] = ['FangSong'] #
-mpl.rcParams['axes.unicode_minus'] = False 
+from matplotlib.font_manager import _rebuild
+_rebuild()
+plt.rcParams['font.sans-serif'] = ['SimHei'] 
+plt.rcParams['axes.unicode_minus'] = False 
 
 Time = {}
 Stock_Price = {}
@@ -27,7 +30,7 @@ Time['end'] = pd.to_datetime('2023-03-17')
 
 Stock_Price['resale'] = 103
 Stock_Price['redeem'] = 104
-Stock_Price['now'] = 49.98
+Stock_Price['now'] = 30
 Stock_Price['riskfree'] = 0.015
 Stock_Price['volatility'] = 0.3
 
@@ -43,6 +46,7 @@ def RemainTime(Time,Bond_Coupon):
     now = Time['now']
     expired = Bond_Coupon.index[-1]
     return str(expired-now)[:-14]
+
 
 
 def BondValue(Time,Stock_Price,Bond_Price,Bond_Coupon):
@@ -88,7 +92,20 @@ def MonteCarlo(Time,Stock_Price,Bond_Coupon,paths=5000):
     return Price_paths
 
 
+def Resale(Time,Stock_Price,Bond_Price,Bond_Coupon):
+    period = np.float(RemainTime(Time,Bond_Coupon))/365
+    FV = Bond_Price['facevalue']
+    P_resale = Stock_Price['resale']
+    S = Stock_Price['now']
+    sigma = Stock_Price['volatility']  
+    R = Stock_Price['riskfree']
+    BV = BondValue(Time,Stock_Price,Bond_Price,Bond_Coupon)
+    def okfine(x):
+        return ((S * st.norm.cdf((np.log(S/x) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))) - x * np.exp(-R*period)) * st.norm.cdf((np.log(S/x) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))- sigma * np.sqrt(period)))*FV/x+BV-P_resale
+    sol = fsolve(okfine,30)
+    return sol
+  
 
-    
-    
-    
+
+
+
