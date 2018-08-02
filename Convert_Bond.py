@@ -12,7 +12,9 @@ from sklearn import linear_model
 from pylab import mpl
 from time import time
 from scipy.optimize import fsolve
-
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+ 
 from matplotlib.font_manager import _rebuild
 _rebuild()
 plt.rcParams['font.sans-serif'] = ['SimHei'] 
@@ -45,6 +47,7 @@ def RemainTime(T0,T,datatype):
         return np.int(str(T-T0)[:-14])
     elif datatype == 'float':
         return np.float(str(T-T0)[:-14])/365
+
 
 def BondValue(Time,Price,Bond_Coupon):
     T0 = Time['now']
@@ -80,7 +83,6 @@ def BSM_Model(Time,Price,Bond_Coupon):
     return BSM(Time,Price) + BondValue(Time,Price,Bond_Coupon)
 
 
-
 def MonteCarlo(Time,Price,Bond_Coupon,paths=5000):
     R = Price['riskfree']
     sigma = Price['volatility']
@@ -96,6 +98,7 @@ def MonteCarlo(Time,Price,Bond_Coupon,paths=5000):
         Price_paths[:,t] = Price_paths[:,t-1] * np.exp((R-0.5*sigma**2) * dt + sigma * np.sqrt(dt) * z)
     return Price_paths
 
+
 '''
 path = MonteCarlo(Time,Price,Bond_Coupon,paths=5000)
 plt.figure(figsize=(10,7))
@@ -106,6 +109,7 @@ for i in range(path.shape[1]):
     plt.plot(path[i])
 plt.show()
 '''
+
 
 def Resale(Time,Price,Bond_Coupon,S0):
     period = np.float(RemainTime(Time,Bond_Coupon))/365
@@ -131,8 +135,15 @@ def CouponValue(Bond_Coupon,Price,T0,T):
         discounted_value = discounted_value + FV*temp_Coupon[day]*np.exp(-r*period)
     return discounted_value 
 
+
+#多元非线性回归
+
+
+
+
 #尚未考虑转股冷却时间 半年
 def LSM_Model(Time,Price,Bond_Coupon,paths=5000):
+    
     r = Price['riskfree']
     now = Time['now']
     FV = Price['facevalue']
@@ -145,8 +156,8 @@ def LSM_Model(Time,Price,Bond_Coupon,paths=5000):
     Price_Path = pd.DataFrame(data=Price_Path,columns=DateIndex)
     
     K = pd.Series(Price['strike'],index=Price_Path.index) #store the strike price for each path
-    Path_Value = pd.Series(0,index=Price_Path.index) #store the value of the convert bond along each path
-    Expired_Value = pd.Serie(0,index=Price_Path.index)
+    Redeem_Value = pd.Series(0,index=Price_Path.index) #store the value of the convert bond along each path
+    Expired_Value = pd.DataFrame(0,index=Price_Path.index,columns=Price_Path.columns)
     
     for path in range(Price_Path.shape[0]):
         for step in range(Price_Path.shape[1]): #Loop in steps
@@ -159,17 +170,22 @@ def LSM_Model(Time,Price,Bond_Coupon,paths=5000):
                 period = RemainTime(now,day)
                 strike_value = S * Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
                 coupon_value = CouponValue(Bond_Coupon,Price,now,day) #Return discounted value
-                Path_Value[path] = strike_value+coupon_value
+                Redeem_Value[path] = strike_value+coupon_value
                 break
-        if Path_Value[path] == 0:
+        if Redeem_Value[path] == 0:
             stock_value = Price_Path.iloc[path,-1]*100/K[path]
             bond_value = FV*(1+coupon_end)
-            Expired_Value[path] = max(stock_value,bond_value)
-    Path_Value = Path_Value[Path_Value>0]
-    Expired_Value = Expired_Value[Expired_Value>0]
+            Expired_Value.iloc[path,-1] = max(stock_value,bond_value)
+    Redeem_Value = Redeem_Value[Redeem_Value>0]
+    Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0]
+    Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0]
     
-    # LSM price the option
-    
+    # 反向传播算法
+    for j in range(1,Price_Path.shape[1]):
+        temp_y = Expired_Value.iloc[:,-j]*np.exp(-r/365) #向前一天贴现
+        temp_x = Expired_Price.iloc[:,-(j+1)]
+        temp = Regression() #非线性回归后得到的预测者
+        # 逐个元素比较temp 与 temp_x 的大小
             
             
                                     
