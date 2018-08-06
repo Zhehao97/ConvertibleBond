@@ -48,8 +48,13 @@ def RemainTime(T0,T,datatype):
         return np.int(str(T-T0)[:-14])
     elif datatype == 'float':
         return np.float(str(T-T0)[:-14])/365
+<<<<<<< HEAD
 
 
+=======
+
+
+>>>>>>> 5a3a108599c1a4a0b8ab04bc8fa92be086c29a1e
 def BondValue(T0,Price,Bond_Coupon):
     T = Bond_Coupon.index[-1]
     FV = Price['facevalue']
@@ -145,6 +150,82 @@ def PolyRegression(X,Y): #X,Y numpy array type
     regressor.fit(X_train,Y_train)
     Y_test = regressor.predict(X_test)
     return Y_test
+<<<<<<< HEAD
+=======
+
+
+
+#尚未考虑转股冷却时间 半年
+def LSM_Model(Time,Price,Bond_Coupon,paths=5000):
+    
+    r = Price['riskfree']
+    now = Time['now']
+    FV = Price['facevalue']
+    coupon_end = Bond_Coupon[-1]
+    trig_resale = Price['resale_trigger']
+    trig_redeem = Price['redeem_trigger']
+    
+    DateIndex = pd.date_range(start=now,end=Bond_Coupon.index[-1],freq='D')
+    Price_Path = MonteCarlo(Time,Price,Bond_Coupon,paths)
+    Price_Path = pd.DataFrame(data=Price_Path,columns=DateIndex)
+    
+    K = pd.Series(Price['strike'],index=Price_Path.index) #store the strike price for each path
+    Redeem_Value = pd.Series(0,index=Price_Path.index) #store the value of the convert bond along each path
+    Expired_Value = pd.DataFrame(0,index=Price_Path.index,columns=Price_Path.columns)
+    
+    for path in range(Price_Path.shape[0]):
+        for step in range(Price_Path.shape[1]-1): #遍历到倒数第二天
+            S = Price_Path.iloc[path,step]
+            if S <= trig_resale:
+                #K[path] = Resale(Price=Price,Bond_Coupon=Bond_Coupon,T0=step,S0=S)
+                continue
+            elif S >= trig_redeem:
+                day = Price_Path.columns[step]
+                period = RemainTime(now,day,'float')
+                strike_value = S * Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
+                coupon_value = CouponValue(Bond_Coupon,Price,now,day) #Return discounted value
+                Redeem_Value[path] = strike_value+coupon_value
+                break
+        if Redeem_Value[path] == 0:
+            stock_value = Price_Path.iloc[path,-1]*FV/K[path]
+            bond_value = FV*(1+coupon_end)
+            Expired_Value.iloc[path,-1] = max(stock_value,bond_value)
+    Redeem_Value = Redeem_Value[Redeem_Value>0]
+    Expired_K = K[Expired_Value.iloc[:,-1]>0]
+    Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0]
+    Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0]
+    
+    temp_K = Expired_K.values.reshape(-1,1)
+    # 反向传播算法
+    for j in range(1,Price_Path.shape[1]):
+        temp_y = Expired_Value.iloc[:,-j].values * np.exp(-r/365) #向前一天贴现
+        temp_x = Expired_Price.iloc[:,-(j+1)].values
+        temp_y = temp_y.reshape(-1,1)
+        temp_x = temp_x.reshape(-1,1)
+        predict_y = PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
+        
+        assert temp_x.shape == s temp_K.shape
+        temp_convert = temp_x*FV/temp_K
+        # 逐个元素比较持有期权的预测现价 与 转股价值的大小
+        predict_y = predict_y.reshape(-1,1)
+        temp_convert = temp_convert.reshape(-1,1)
+        
+        temp = np.zeros(predict_y.shape)
+        temp[predict_y>temp_convert] = predict_y[predict_y>temp_convert]
+        temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
+        
+        Expired_Value.iloc[:,-(j+1)] = temp
+    #计算平均价格
+    mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
+    return mean_value
+
+
+                     
+ff = LSM_Model(Time,Price,Bond_Coupon,paths=5000)
+
+print(ff)
+    
+>>>>>>> 5a3a108599c1a4a0b8ab04bc8fa92be086c29a1e
 
 
 
