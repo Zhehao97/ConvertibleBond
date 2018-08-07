@@ -22,11 +22,12 @@ plt.rcParams['axes.unicode_minus'] = False
 
 
 class CBond:
-    def __init__(self, Time, Price, Bond_Coupon, path):
+    def __init__(self, Time, Price, Bond_Coupon, Number, path):
         self.Time = Time
         self.Price = Price
         self.Bond_Coupon = Bond_Coupon
         self.path = path
+        self.Number = Number
     
     def RemainTime(self,T0,T,datatype):
         if datatype == 'int':
@@ -41,7 +42,7 @@ class CBond:
         FV = self.Price['facevalue']
         R = self.Price['riskfree']
         period = self.RemainTime(T0,T,'float')
-        coupon = self.Bond_Coupon[T0<Bond_Coupon.index]
+        coupon = self.Bond_Coupon[T0<self.Bond_Coupon.index]
         bondvalue = FV*np.exp(-R*period)
         for i in range(len(coupon)):
             t = coupon.index[i]
@@ -116,11 +117,10 @@ class CBond:
         r = self.Price['riskfree']
         FV = self.Price['facevalue']
         temp_Coupon = self.Bond_Coupon[self.Bond_Coupon.index <= T]
-        temp_Coupon = temp_Coupon[temp_Coupon.index >= T0]
-        discounted_value = 0
-        for day in temp_Coupon.index:
-            period = self.RemainTime(T0,day,'float')
-            discounted_value = discounted_value + FV*temp_Coupon[day]*np.exp(-r*period)
+        temp_Coupon = temp_Coupon[-1]
+        period = self.RemainTime(T0,T,'float')
+        #按照债券面值加当期应计利息的价格赎回
+        discounted_value = discounted_value =  FV * (1+temp_Coupon) * np.exp(-r*period)
         return discounted_value 
     
     
@@ -143,8 +143,12 @@ class CBond:
         now = self.Time['now']
         FV = self.Price['facevalue']
         coupon_end = self.Bond_Coupon[-1]
+        
         trig_resale = self.Price['resale_trigger']
         trig_redeem = self.Price['redeem_trigger']
+        
+        #trig_resale_num = self.Number['resale']
+        trig_redeem_num = self.Number['redeem']
         
         DateIndex = pd.date_range(start=now,end=self.Bond_Coupon.index[-1],freq='D')
         Price_Path = self.MonteCarlo()
@@ -155,22 +159,31 @@ class CBond:
         Expired_Value = pd.DataFrame(0,index=Price_Path.index,columns=Price_Path.columns)
         
         for path in range(Price_Path.shape[0]):
+            resale_count = 0 #统计触发回收条款的
+            redeem_count = 0 #统计触发赎回条款的次数
             for step in range(180,Price_Path.shape[1]-1): #半年后进入转股期，遍历到倒数第二天
                 S = Price_Path.iloc[path,step]
                 if S <= trig_resale:
-                    #K[path] = Resale(Price=Price,Bond_Coupon=Bond_Coupon,T0=step,S0=S)
-                    continue
+                    resale_count = resale_count + 1
+                    '''
+                    if resale_count >= trig_resale_num:
+                        K[path] = Resale(Price=Price,Bond_Coupon=Bond_Coupon,T0=step,S0=S)
+                        continue
+                    '''
                 elif S >= trig_redeem:
-                    day = Price_Path.columns[step]
-                    period = self.RemainTime(now,day,'float')
-                    strike_value = S * self.Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
-                    coupon_value = self.CouponValue(now,day) #Return discounted value
-                    Redeem_Value[path] = strike_value+coupon_value
-                    break
+                    redeem_count = redeem_count + 1
+                    if redeem_count >= trig_redeem_num:
+                        day = Price_Path.columns[step]
+                        period = self.RemainTime(now,day,'float')
+                        strike_value = S * self.Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
+                        coupon_value = self.CouponValue(now,day) #Return discounted value
+                        Redeem_Value[path] = max(strike_value,coupon_value)
+                        break
             if Redeem_Value[path] == 0:
                 stock_value = Price_Path.iloc[path,-1]*FV/K[path]
                 bond_value = FV*(1+coupon_end)
                 Expired_Value.iloc[path,-1] = max(stock_value,bond_value)
+                
         Redeem_Value = Redeem_Value[Redeem_Value>0]
         Expired_K = K[Expired_Value.iloc[:,-1]>0]
         Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0]
@@ -212,8 +225,38 @@ class CBond:
 
 
 
+
+Time = {}
+Price = {}
+Number = {}
+
+Time['now'] = pd.to_datetime(time.strftime("%Y-%m-%d"))
+
+Time['start'] = pd.to_datetime('2018-02-06')
+Time['end'] = pd.to_datetime('2024-02-06')
+
+Price['strike'] = 52.50
+Price['facevalue'] = 100
+Price['riskfree'] = 0.015
+Price['now'] = 40.71
+Price['volatility'] = 0.387480#计算波动率
+
+
+Price['resale_trigger'] = 0.7 * Price['strike']
+Price['redeem_trigger'] = 1.3 * Price['strike']
+Price['resale'] = 103
+
+Number['resale'] = 30
+Number['redeem'] = 15
+
+cp = np.array([0.002,0.004,0.006,0.008,0.016,0.02])
+Bond_Coupon = pd.Series(cp,index=pd.date_range(Time['start'],Time['end'],freq='365D',closed='right'))
+
+
+
+
 if __name__ == '__main__':
-    obj = CBond(Time,Price,Bond_Coupon,5000)
+    obj = CBond(Time,Price,Bond_Coupon,Number,5000)
     value = obj.Summary()
     print(value)
     
