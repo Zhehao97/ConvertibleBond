@@ -72,10 +72,6 @@ def BasicParameters(cbond):
     
 
 
-#全局变量
-Bond_Coupon,Time,Price,Number = BasicParameters(cbond)
-
-
 def MarkToMarket(stock,Time):    
     #股票日涨跌幅
     stock_change = stock.iloc[:,1:]/stock.shift(periods=1,axis=1).iloc[:,1:] - 1
