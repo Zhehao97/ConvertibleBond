@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Tue Aug  7 13:36:43 2018
@@ -22,11 +21,13 @@ _rebuild()
 plt.rcParams['font.sans-serif'] = ['SimHei'] 
 plt.rcParams['axes.unicode_minus'] = False 
 
+
 from Convert_Bond import CBond
 
 
 ##################################################################################
 '''
+
 from WindPy import *
 #导入数据
 w.start()
@@ -38,13 +39,7 @@ cbond_price = w.wsd("128035.SZ", "close", "2018-02-06", "2018-08-07", "")
 
 w.close()
 
-#处理导入的数据
-cbond = pd.DataFrame(data=cbond_par.Data, index=cbond_par.Fields, columns=cbond_par.Codes)
-cbond = cbond.T
-cbond = cbond.iloc[0,:] # 转换为Series
-stock = pd.DataFrame(data=stock_price.Data, index=stock_price.Codes, columns=stock_price.Times)
-nationbond = pd.DataFrame(data=sixyear_bond.Data, index=sixyear_bond.Codes, columns=sixyear_bond.Times)
-cbond_price = pd.DataFrame(data=cbond_price.Data, index=cbond_price.Codes, columns=cbond_price.Times)
+
 '''
 ##################################################################################
 
@@ -53,6 +48,7 @@ cbond_parameter = pd.read_pickle('cbond_parameter.pkl')
 cbond_price = pd.read_pickle('cbond_price.pkl')
 stock_price = pd.read_pickle('stock_price.pkl')
 nationbond = pd.read_pickle('nationbond.pkl')
+
 
 
 ##################################################################################
