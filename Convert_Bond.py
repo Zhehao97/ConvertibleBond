@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jul 26 11:09:25 2018
@@ -116,11 +117,14 @@ class CBond:
     def CouponValue(self,T0,T):
         r = self.Price['riskfree']
         FV = self.Price['facevalue']
-        temp_Coupon = self.Bond_Coupon[self.Bond_Coupon.index <= T]
-        temp_Coupon = temp_Coupon[-1]
+        if T>=self.Bond_Coupon.index[0]:
+            temp_Coupon = self.Bond_Coupon[self.Bond_Coupon.index <= T]
+            Coupon = temp_Coupon.values[-1]
+        else:
+            Coupon = 0
         period = self.RemainTime(T0,T,'float')
         #按照债券面值加当期应计利息的价格赎回
-        discounted_value = discounted_value =  FV * (1+temp_Coupon) * np.exp(-r*period)
+        discounted_value = discounted_value =  FV * (1+Coupon) * np.exp(-r*period)
         return discounted_value 
     
     
@@ -136,8 +140,7 @@ class CBond:
         return Y_test
     
     
-    
-    #尚未考虑转股冷却时间 半年
+
     def LSM_Model(self):
         r = self.Price['riskfree']
         now = self.Time['now']
@@ -173,10 +176,10 @@ class CBond:
                 elif S >= trig_redeem:
                     redeem_count = redeem_count + 1
                     if redeem_count >= trig_redeem_num:
-                        day = Price_Path.columns[step]
-                        period = self.RemainTime(now,day,'float')
+                        T = Price_Path.columns[step]
+                        period = self.RemainTime(now,T,'float')
                         strike_value = S * self.Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
-                        coupon_value = self.CouponValue(now,day) #Return discounted value
+                        coupon_value = self.CouponValue(now,T) #Return discounted value
                         Redeem_Value[path] = max(strike_value,coupon_value)
                         break
             if Redeem_Value[path] == 0:
@@ -223,42 +226,5 @@ class CBond:
         paramerter = {'BSM定价:':BSM_price,'LSM定价:':LSM_price,'债券价值:':bond_value}
         return paramerter
 
-
-
-
-Time = {}
-Price = {}
-Number = {}
-
-Time['now'] = pd.to_datetime(time.strftime("%Y-%m-%d"))
-
-Time['start'] = pd.to_datetime('2018-02-06')
-Time['end'] = pd.to_datetime('2024-02-06')
-
-Price['strike'] = 52.50
-Price['facevalue'] = 100
-Price['riskfree'] = 0.015
-Price['now'] = 40.71
-Price['volatility'] = 0.387480#计算波动率
-
-
-Price['resale_trigger'] = 0.7 * Price['strike']
-Price['redeem_trigger'] = 1.3 * Price['strike']
-Price['resale'] = 103
-
-Number['resale'] = 30
-Number['redeem'] = 15
-
-cp = np.array([0.002,0.004,0.006,0.008,0.016,0.02])
-Bond_Coupon = pd.Series(cp,index=pd.date_range(Time['start'],Time['end'],freq='365D',closed='right'))
-
-
-
-
-if __name__ == '__main__':
-    obj = CBond(Time,Price,Bond_Coupon,Number,5000)
-    value = obj.Summary()
-    print(value)
-    
 
 
