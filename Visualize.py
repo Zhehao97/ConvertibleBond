@@ -24,27 +24,34 @@ plt.rcParams['axes.unicode_minus'] = False
 
 
 
-cbond_price = pd.read_pickle('/Users/trevor/Downloads/ConvertBond/cbond_price.pkl')
-stock_price = pd.read_pickle('/Users/trevor/Downloads/ConvertBond/stock_price.pkl')
+everyday_data = pd.read_csv('everyday_data.csv')
+pricing_data1 = pd.read_csv('data1.csv') 
+pricing_data2 = pd.read_csv('data2.csv') 
 
 
-pricing_data1 = pd.read_csv('/Users/trevor/Downloads/ConvertBond/backtracking1.csv') 
-pricing_data2 = pd.read_csv('/Users/trevor/Downloads/ConvertBond/backtracking2.csv') 
-pricing_data3 = pd.read_csv('/Users/trevor/Downloads/ConvertBond/backtracking3.csv') 
-pricing_data4 = pd.read_csv('/Users/trevor/Downloads/ConvertBond/backtracking4.csv') 
-pricing_data5 = pd.read_csv('/Users/trevor/Downloads/ConvertBond/backtracking5.csv')
-
+everyday_data = everyday_data.set_index('TRADE_DT')
 pricing_data1 = pricing_data1.set_index('TRADE_DT')
 pricing_data2 = pricing_data2.set_index('TRADE_DT')
-pricing_data3 = pricing_data3.set_index('TRADE_DT')
-pricing_data4 = pricing_data4.set_index('TRADE_DT')
-pricing_data5 = pricing_data5.set_index('TRADE_DT')
 
 
-frame = [pricing_data1,pricing_data2,pricing_data3,pricing_data4,pricing_data5]
-
+frame = [pricing_data1,pricing_data2]
 pricing_data = pd.concat(frame,axis=0,join='outer')
+
+
 pricing_data.index = pd.DatetimeIndex(pricing_data.index)
+everyday_data.index = pd.DatetimeIndex(everyday_data.index)
+
+pricing_data.to_csv('data.csv')
+
+
+sigma_difference = (everyday_data['VOLATILITY'] - pricing_data['SIGMA'])
+
+
+
+sigma_difference[sigma_difference>0.2].count()
+
+sigma_difference[sigma_difference<-0].count()
+
 
 
 ###########################################################################################
