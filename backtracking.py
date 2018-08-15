@@ -22,53 +22,22 @@ plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False 
 
 
-from Convert_Bond import CBond
+from ConvertBond import CBond
 
 
 ##################################################################################
-'''
-
-from WindPy import *
-#导入数据
-w.start()
-
-cbond_par = w.wss("128035.SZ", "latestpar,carrydate,maturitydate,coupontxt,clause_conversion_code,clause_conversion2_swapshareprice,clause_calloption_redeemspan,clause_calloption_triggerproportion,clause_putoption_putbacktriggerspan,clause_putoption_redeem_triggerproportion,clause_putoption_resellingprice","tradeDate=20180806")
-stock_price = w.wsd("002008.SZ", "close", "2016-01-01", "2018-08-07", "PriceAdj=F")
-sixyear_bond = w.edb("M0057947", "2017-12-01", "2018-08-08","Fill=Previous")
-cbond_price = w.wsd("128035.SZ", "close", "2018-02-06", "2018-08-07", "")
-
-w.close()
-
-
-'''
-##################################################################################
-
-
-cbond_parameter = pd.read_csv('cbond_parameter.csv',encoding='GBK')
-cbond_price = pd.read_csv('cbond_price.csv')
-stock_price = pd.read_csv('stock_price.csv')
-nationbond = pd.read_csv('nationbond.csv')
-
-
-stock_price = stock_price.set_index('Unnamed: 0')
-nationbond = nationbond.set_index('Unnamed: 0')
-cbond_price = cbond_price.set_index('Unnamed: 0')
-cbond_parameter = cbond_parameter.set_index('Unnamed: 0')
-cbond_parameter['CLAUSE_PUTOPTION_RESELLINGPRICE']=104
-
-
 
 
 ##################################################################################
 
 def ExtractCoupon(cbond_data): #cbond_data 是 Seires类型
-    txt = cbond_data['COUPONTXT'][0]
+    txt = cbond_data['COUPONTXT']
     pattern = re.compile(r'\d*\.*\d*\%') #匹配百分数
     temp = re.findall(pattern, txt)
     coupon = [float(a.strip('%'))/100 for a in temp] #转换为浮点小数
     coupon = np.array(coupon)
-    start_date = pd.to_datetime(cbond_data['CARRYDATE'][0])
-    end_date = pd.to_datetime(cbond_data['MATURITYDATE'][0])
+    start_date = pd.to_datetime(cbond_data['CARRYDATE'])
+    end_date = pd.to_datetime(cbond_data['MATURITYDATE'])
     bond_coupon = pd.Series(coupon, index=pd.date_range(start_date,end_date,freq='365D',closed='right'))
     return bond_coupon
 
@@ -76,87 +45,40 @@ def ExtractCoupon(cbond_data): #cbond_data 是 Seires类型
 def BasicParameters(cbond_data):
     bond_coupon = ExtractCoupon(cbond_data)    
     Time = {}
-    Time['start'] = pd.to_datetime(cbond_data['CARRYDATE'][0]) #起息日期
-    Time['end'] = pd.to_datetime(cbond_data['MATURITYDATE'][0]) #摘牌日期
+    Time['start'] = pd.to_datetime(cbond_data['CARRYDATE']) #起息日期
+    Time['end'] = pd.to_datetime(cbond_data['MATURITYDATE']) #摘牌日期
     price = {}
-    price['facevalue'] = cbond_data['LATESTPAR'][0] #面值
-    price['strike'] = cbond_data['CLAUSE_CONVERSION2_SWAPSHAREPRICE'][0]#转股价格
-    price['resale_trigger'] = cbond_data['CLAUSE_PUTOPTION_REDEEM_TRIGGERPROPORTION'][0] * price['strike']/100 #回售触发价格
-    price['redeem_trigger'] = cbond_data['CLAUSE_CALLOPTION_TRIGGERPROPORTION'][0] * price['strike']/100 #赎回触发价格
-    price['resale'] = cbond_data['CLAUSE_PUTOPTION_RESELLINGPRICE'][0] #回售价格
+    price['facevalue'] = cbond_data['LATESTPAR'] #面值
+    price['strike'] = cbond_data['CLAUSE_CONVERSION2_SWAPSHAREPRICE']#转股价格
+    price['resale_trigger'] = cbond_data['CLAUSE_PUTOPTION_REDEEM_TRIGGERPROPORTION'] * price['strike']/100 #回售触发价格
+    price['redeem_trigger'] = cbond_data['CLAUSE_CALLOPTION_TRIGGERPROPORTION'] * price['strike']/100 #赎回触发价格
+    price['resale'] = cbond_data['CLAUSE_PUTOPTION_RESELLINGPRICE'] #回售价格
     number = {}
-    number['resale'] = cbond_data['CLAUSE_PUTOPTION_PUTBACKTRIGGERSPAN'][0] #回售触发天数限制
-    number['redeem'] = cbond_data['CLAUSE_CALLOPTION_REDEEMSPAN'][0] #赎回触发天数限制
+    number['resale'] = cbond_data['CLAUSE_PUTOPTION_PUTBACKTRIGGERSPAN'] #回售触发天数限制
+    number['redeem'] = cbond_data['CLAUSE_CALLOPTION_REDEEMSPAN'] #赎回触发天数限制
     return bond_coupon,Time,price,number
     
+
 
 ###############################################################################
 
 
 def StockVolatility(stock_data,period=20): #计算每天正股波动率
     #股票日涨跌幅, stock_data 是dataframe格式
-    stock_return = stock_data.iloc[:,1:]/stock_data.shift(periods=1,axis=1).iloc[:,1:] - 1
-    stock_return = stock_return.T
+    stock_return = stock_data/stock_data.shift(periods=1) - 1
     #EWMA模型计算指数移动加权平均值
-    Avg = stock_return.ewm(span = period).mean()
     Std = stock_return.ewm(span = period).std()
-    Avg = Avg*np.sqrt(250)
-    Std = Std*np.sqrt(250)
-    EWMA = {'AVG':Avg,'STD':Std}
-    return EWMA
-
-
-
-def MarkToMarket(nationbond,stock_price, cbond_price,Time): #跟踪转债上市后ß每日数据
-    #处理正股价格数据
-    stock_data = stock_price.T # stock_price （历史两年数据）
-    stock_data = stock_data.reset_index()
-    stock_data.columns = ['TRADE_DT','PRICE']
-    stock_data['TRADE_DT'] = pd.DatetimeIndex(stock_data['TRADE_DT'])
-    #计算TTM年化收益率期望和波动率
-    EWMA = StockVolatility(stock_price)
-    #计算收益率期望
-    expectation_data = EWMA['AVG']
-    expectation_data = expectation_data.reset_index()
-    expectation_data.columns = ['TRADE_DT','EXPECTATION']
-    expectation_data['TRADE_DT'] = pd.DatetimeIndex(expectation_data['TRADE_DT'])
-    #计算收益率波动率
-    volatility_data = EWMA['STD']
-    volatility_data = volatility_data.reset_index()
-    volatility_data.columns = ['TRADE_DT','VOLATILITY']
-    volatility_data['TRADE_DT'] = pd.DatetimeIndex(volatility_data['TRADE_DT'])
-    #处理六年期国债数据
-    nationbond_data = nationbond.T
-    nationbond_data = nationbond_data.reset_index()
-    nationbond_data.columns = ['TRADE_DT','INTEREST']
-    nationbond_data['TRADE_DT'] = pd.DatetimeIndex(nationbond_data['TRADE_DT'])
-    #处理债券价格是数据
-    cbond_data = cbond_price.T
-    cbond_data = cbond_data.reset_index()
-    cbond_data.columns = ['TRADE_DT','CBOND_PRICE']
-    cbond_data['TRADE_DT'] = pd.DatetimeIndex(cbond_data['TRADE_DT'])
-    #波动率数据,正股价格数据,转债价格,国债利率/无风险利率数据合并合并
-    update_data = pd.merge(expectation_data,volatility_data,how='left',on='TRADE_DT')
-    update_data = pd.merge(update_data, stock_data, how='left', on='TRADE_DT')
-    update_data = pd.merge(update_data, nationbond_data, how='left', on='TRADE_DT')
-    update_data = pd.merge(cbond_data, update_data, how='left', on='TRADE_DT')
-    return update_data   
-
-
+    std = Std[-1]*np.sqrt(250)
+    return std
 
 
 ###############################################################################
 
-# 计算每日delta 
-
-def Coefficient(LSM,BSM):
-    coef_list = np.array(LSM)/np.array(BSM)
-    coef = np.mean(coef_list)
-    return coef
+ 
 
 
 
-def ComputeDelta(LSM_price,BSM_price,Time,Price):
+def ComputeDelta(lsm_price,bsm_price,Time,Price):
     T0 = Time['now']
     T = Time['end']
     period = np.float(str(T-T0)[:-14])/365
@@ -165,111 +87,176 @@ def ComputeDelta(LSM_price,BSM_price,Time,Price):
     K = Price['strike']
     sigma = Price['volatility']
     #确定LSM模型和BSM模型之间的比例系数
-    coef = Coefficient(LSM_price,BSM_price)
+    coef = lsm_price/bsm_price
     d1 = (np.log(S0/K) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))
     delta = st.norm.cdf(d1) * coef
     return delta
 
 
-def ComputeSigma(LSM_price,BSM_price,Price,Time,CBond_Price,Bond_Value,pre_sigma):
+def ComputeSigma(lsm_price,bsm_price,bond_price,cb_price,Price,Time):
 
     T0 = Time['now']
-    T = Bond_Coupon.index[-1]
+    T = Time['end']
     S0 = Price['now']
     FV = Price['facevalue']
     K = Price['strike']
     R = Price['riskfree']
-    BV = Bond_Value
-    CBP = CBond_Price 
+    BV = bond_price
+    CBP = cb_price 
     period = np.float(str(T-T0)[:-14])/365
     #确定LSM模型和BSM模型之间的比例系数
-    coef = Coefficient(LSM_price,BSM_price)
+    coef = lsm_price/bsm_price
     print(coef)
     def okfine(sigma):
         return (S0 * st.norm.cdf((np.log(S0/K) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))) - K * np.exp(-R*period) * st.norm.cdf((np.log(S0/K) + (R - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))))* FV/K * coef + BV - CBP
-    np.random.seed(np.int(pre_sigma))
-    sol = opt.root(okfine,np.random.rand(1)/2)
-    return sol.x
+    np.random.seed(2222)
+    sol = opt.root(okfine,np.random.rand(1))
+    return np.float(sol.x)
 
 
 
 ##################################################################################
 
-
-
-def ExecuteModel(Time,Price,Bond_Coupon,Number,everyday_data):
-    
-    LSM_Price = []
-    BSM_Price = []
-    BOND_Price = []
-    Delta = []
-    Sigma = [0.079] #随机初始化隐含波动率
-    for d in range(308,616):
-        Time['now'] = everyday_data.index[d]
-        Price['volatility'] = everyday_data['VOLATILITY'][d]
-        Price['now'] = everyday_data['PRICE'][d]
-        Price['riskfree'] = everyday_data['INTEREST'][d]/100
-        Price['mean'] = everyday_data['EXPECTATION'][d]
-        
-        #调用CBond类计算模型定价
-        obj = CBond(Time,Price,Bond_Coupon,Number,5000)
-        value = obj.Summary()
-        LSM_Price.append(value['LSM定价:'])
-        BSM_Price.append(value['BSM定价:'])
-        BOND_Price.append(value['债券价值:'])
-        
-        #更新每日delta值
-        delta = ComputeDelta(LSM_Price,BSM_Price,Time,Price)
-        Delta.append(delta)
-        
-        #更新每日隐含波动率sigma
-        CBond_Price = everyday_data['CBOND_PRICE'][d]
-        sigma = ComputeSigma(LSM_Price,BSM_Price,Price,Time,CBond_Price,value['债券价值:'],Sigma[-1])
-        Sigma.append(sigma)
-        
-        
-    LSM_Price = np.array(LSM_Price)
-    BSM_Price = np.array(BSM_Price)
-    BOND_Price = np.array(BOND_Price)
-    Delta = np.array(Delta)
-    Sigma = np.array(Sigma[1:]) #舍弃第一个初始化波动率
-    
-    MODEL = pd.DataFrame(data=LSM_Price,index=everyday_data.index[308:616])
-    MODEL.columns = ['LSM_PRICE']
-    MODEL['BSM_PRICE'] = BSM_Price
-    MODEL['BOND_PRICE'] = BOND_Price
-    MODEL['DELTA'] = Delta
-    MODEL['SIGMA']  = Sigma
-    
-    return MODEL
+def RunModel(cbond_par,stock_data,nbond_data,now,c_price):
+    #导入基本参数
+    Bond_Coupon,Time,Price,Number = BasicParameters(cbond_par)
+    #更新每日参数
+    Time['now'] = now
+    Price['volatility'] = StockVolatility(stock_data,period=20) #回滚以前的数据
+    Price['now'] = stock_data[now]
+    Price['riskfree'] = nbond_data[now][0]/100
+    #调用CBond类计算模型定价
+    obj = CBond(Time,Price,Bond_Coupon,Number,1000)
+    #######################
+    value = obj.Summary()
+    lsm_price = value['LSM定价:']
+    bsm_price = value['BSM定价:']
+    bond_price = value['债券价值:']    
+    #更新每日delta值
+    delta = ComputeDelta(lsm_price,bsm_price,Time,Price)        
+    #更新每日隐含波动率sigma
+    sigma = ComputeSigma(lsm_price,bsm_price,bond_price,c_price,Price,Time)
+    Par = {'delta':delta,'sigma':sigma,'volatility':Price['volatility']}
+    return Par,Price
+ 
+##################################################################################
 
 
 
 ##################################################################################
 
+def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
+    #数据表的时间差
+    diff = stock_price.shape[1]-cbond_price.shape[1]
+    #建仓/平仓信号
+    Signal = np.zeros(cbond_price.shape[0])
+    #可转债和正股持仓仓位
+    c_postion = np.zeros(cbond_price.shape[0])
+    s_postion = np.zeros(cbond_price.shape[0])
+    #总资本&现金
+    Capital = np.ones(cbond_price.shape[0])*100000 #10万本金
+    Cash = np.zeros(cbond_price.shape[0])
+    #资产净值
+    Value = pd.DataFrame(index=cbond_price.index, columns=cbond_price.columns)
+    in_date = {}
+    #for s in range(cbond_price.shape[0]):
+    for d in range(cbond_price.shape[1]):
+        #初始化参数
+        now = cbond_price.columns[d]
+        c_price = cbond_price.iloc[s,d] #转债当日价格
+        
+        if pd.isna(c_price):
+            continue
+        else:
+            s_price = stock_price[cbond_price.columns[d]][s] #正股当日价格
+            name = cbond_price.index[s] #转债名称
+            cbond_par = cbond_parameter.iloc[s,:] #转债条款
+            stock_data = stock_price.iloc[s,:d+diff+1] #正股历史数据
+            
+            #运行定价模型计算delta和sigma
+            Par,Price = RunModel(cbond_par,stock_data,nbond_data,now,c_price)
+            
+            #跟踪信号        
+            delta = Par['delta']
+            sigma = Par['sigma']
+            volatility = Par['volatility']
+            sigma_diff = volatility-sigma
+            FV = Price['facevalue']
+            K = Price['strike']
+            
+            
+            if Signal[s] == 0:
+                if sigma_diff >= 0.2: #建仓
+                    Signal[s]=1 #将信号调整为持仓
+                    #设置仓位
+                    c_postion[s] = 200 
+                    s_postion[s] = -200*delta*FV/K
+                    #计算现金
+                    Cash[s] = Capital[s] - c_price * c_postion - s_postion*s_price
+                    #计算资本净值
+                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s]
+                    continue
+                else:
+                    continue #保留昨日收益
+            
+            elif Signal[s] == 1:
+                if sigma_diff <= 0.1: #平仓
+                    period = np.float(str(now-in_date[name])[:-14]) #建仓时长
+                    s_coupon = s_postion[s]*(0.08/365)*period  #融券利息
+                    #平仓日资本净值
+                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s] + s_coupon
+                    Capital[s] = Value.iloc[s,d] #将总资本更新为平仓后资本
+                    Signal[s] = 0 #将信号设置为空仓
+                    #将仓位归零
+                    c_postion[s] = 0 
+                    s_postion[s] = 0
+                    continue
+                else: 
+                    period = np.float(str(now-in_date[name])[:-14]) #建仓时长
+                    s_coupon = s_postion[s]*(0.08/365)*period  #融券利息
+                    #计算资本净值
+                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s] + s_coupon
 
+    return Value
 
-
-#全局静态变量(因变量)
-Bond_Coupon,Time,Price,Number = BasicParameters(cbond_parameter)
-
-
-#全局动态变量(因变量)
-everyday_data = MarkToMarket(nationbond,stock_price,cbond_price,Time)#转债上市以来的正股价格和波动率
-everyday_data = everyday_data.set_index('TRADE_DT')
-everyday_data = everyday_data.dropna()
-
-everyday_data
-
-
-start = datetime.datetime.now()
-model = ExecuteModel(Time,Price,Bond_Coupon,Number,everyday_data)
-end = datetime.datetime.now()
-print(end-start)
-
-
-model.to_csv('data4.csv')
 
 
 ##################################################################################
+
+#计算最大回撤
+def getMaxDownList(datax):
+    data = datax.copy()
+    data = list(data)
+    maxdownlist = []
+    for i in range(0, len(data)):
+        temp = (max(data[0:(i+1)]) - data[i])/max(data[0:(i+1)])
+        maxdownlist.append(temp)
+    return(max(maxdownlist))
+
+
+#计算策略指标
+def getFeature(return_data,risk_free=0.03):
+    Return_Rate = return_data.fillna(0)
+    #计算年化波动率
+    std = Return_Rate.std()*np.sqrt(250)
+    #计算累积收益率
+    Return = Return_Rate + 1
+    Return = Return.cumprod()
+    #计算最大回撤
+    maxdown = getMaxDownList(Return)
+    #计算年化收益率
+    span = np.float(str(Return_Rate.index[-1] - Return_Rate.index[0])[:-14])/365
+    rate = (Return_Rate[-1] - 1)/span
+    #计算夏普比率
+    sharpe_ratio = (rate - risk_free)/std #0.03六年期国债
+    Feature = {'年化收益率:':rate, '夏普比率:':sharpe_ratio, '最大回撤:':maxdown}
+    return Feature
+
+##################################################################################
+
+
+###########################################################################################
+
+
+
 

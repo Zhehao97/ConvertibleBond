@@ -59,11 +59,10 @@ class CBond:
         FV = self.Price['facevalue']
         K = self.Price['strike']
         R = self.Price['riskfree']
-        mu = self.Price['mean']
         sigma = self.Price['volatility']
         period = self.RemainTime(T0,T,'float')
-        d1 = (np.log(S0/K) + (mu + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))
-        d2 = (np.log(S0/K) + (mu - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))
+        d1 = (np.log(S0/K) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))
+        d2 = (np.log(S0/K) + (R - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))
         Call = (S0 * st.norm.cdf(d1) - K * np.exp(-R*period) * st.norm.cdf(d2))*FV/K
         return Call
     
@@ -74,8 +73,8 @@ class CBond:
     
     def MonteCarlo(self):
         paths = self.path
-        mu = self.Price['mean']
         sigma = self.Price['volatility']
+        R = self.Price['riskfree']
         T0 = self.Time['now']
         T = self.Bond_Coupon.index[-1]
         period = self.RemainTime(T0,T,'int')
@@ -85,7 +84,7 @@ class CBond:
         np.random.seed(1111)
         for t in range(1, period+1):
             z = np.random.standard_normal(paths)
-            Price_paths[:,t] = Price_paths[:,t-1] * np.exp((mu-0.5*sigma**2) * dt + sigma * np.sqrt(dt) * z)
+            Price_paths[:,t] = Price_paths[:,t-1] * np.exp((R-0.5*sigma**2) * dt + sigma * np.sqrt(dt) * z)
         return Price_paths
     
     
@@ -107,11 +106,10 @@ class CBond:
         FV = self.Price['facevalue']
         P_resale = self.Price['resale']
         sigma = self.Price['volatility']  
-        mu = self.Price['mean']
         R = self.Price['riskfree']
         BV = self.BondValue(T0)
         def okfine(K):
-            return (S0 * st.norm.cdf((np.log(S0/K) + (mu + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))) - K * np.exp(-R*period) * st.norm.cdf((np.log(S0/K) + (mu - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))))*FV/K+(BV-P_resale)
+            return (S0 * st.norm.cdf((np.log(S0/K) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))) - K * np.exp(-R*period) * st.norm.cdf((np.log(S0/K) + (R - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))))*FV/K+(BV-P_resale)
         sol = fsolve(okfine,1)
         return sol
      
@@ -191,32 +189,35 @@ class CBond:
                 
         Redeem_Value = Redeem_Value[Redeem_Value>0]
         Expired_K = K[Expired_Value.iloc[:,-1]>0]
-        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0]
-        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0]
+        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0] #正股价格路径
+        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0] #转债价值路径
         
         temp_K = Expired_K.values.reshape(-1,1)
         # 反向传播算法
-        for j in range(1,Price_Path.shape[1]):
-            temp_y = Expired_Value.iloc[:,-j].values * np.exp(-R/365) #向前一天贴现
-            temp_x = Expired_Price.iloc[:,-(j+1)].values
-            temp_y = temp_y.reshape(-1,1)
-            temp_x = temp_x.reshape(-1,1)
-            predict_y = self.PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
-            
-            temp_convert = temp_x*FV/temp_K
-            # 逐个元素比较持有期权的预测现价 与 转股价值的大小
-            predict_y = predict_y.reshape(-1,1)
-            temp_convert = temp_convert.reshape(-1,1)
-            
-            temp = np.zeros(predict_y.shape)
-            temp[predict_y>temp_convert] = predict_y[predict_y>temp_convert]
-            temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
-            
-            Expired_Value.iloc[:,-(j+1)] = temp
-        #计算触发赎回概率
-        #redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
-        #计算平均价格
-        mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
+        if Expired_Value.iloc[:,-1].count() != 0:
+            for j in range(1,Price_Path.shape[1]):
+                temp_y = Expired_Value.iloc[:,-j].values * np.exp(-R/365) #向前一天贴现
+                temp_x = Expired_Price.iloc[:,-(j+1)].values
+                temp_y = temp_y.reshape(-1,1)
+                temp_x = temp_x.reshape(-1,1)
+                predict_y = self.PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
+                
+                temp_convert = temp_x*FV/temp_K
+                # 逐个元素比较持有期权的预测现价 与 转股价值的大小
+                predict_y = predict_y.reshape(-1,1)
+                temp_convert = temp_convert.reshape(-1,1)
+                
+                temp = np.zeros(predict_y.shape)
+                temp[predict_y>temp_convert] = predict_y[predict_y>temp_convert]
+                temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
+                
+                Expired_Value.iloc[:,-(j+1)] = temp
+            #计算触发赎回概率
+            #redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
+            #计算平均价格
+            mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
+        else:
+            mean_value = Redeem_Value.sum()/Redeem_Value.count()
         #参数字典
         #cbond = {'赎回概率':redeem_percent,'定价':mean_value}
         return mean_value
