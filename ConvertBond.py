@@ -73,8 +73,8 @@ class CBond:
     
     def MonteCarlo(self):
         paths = self.path
-        R = self.Price['riskfree']
         sigma = self.Price['volatility']
+        R = self.Price['riskfree']
         T0 = self.Time['now']
         T = self.Bond_Coupon.index[-1]
         period = self.RemainTime(T0,T,'int')
@@ -142,7 +142,7 @@ class CBond:
     
 
     def LSM_Model(self):
-        r = self.Price['riskfree']
+        R = self.Price['riskfree'] #无风险贴现利率
         now = self.Time['now']
         FV = self.Price['facevalue']
         coupon_end = self.Bond_Coupon[-1]
@@ -178,7 +178,7 @@ class CBond:
                     if redeem_count >= trig_redeem_num:
                         T = Price_Path.columns[step]
                         period = self.RemainTime(now,T,'float')
-                        strike_value = S * self.Price['facevalue']/K[path] * np.exp(-r*period) #discounted value
+                        strike_value = S * self.Price['facevalue']/K[path] * np.exp(-R*period) #discounted value
                         coupon_value = self.CouponValue(now,T) #Return discounted value
                         Redeem_Value[path] = max(strike_value,coupon_value)
                         break
@@ -189,32 +189,35 @@ class CBond:
                 
         Redeem_Value = Redeem_Value[Redeem_Value>0]
         Expired_K = K[Expired_Value.iloc[:,-1]>0]
-        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0]
-        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0]
+        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0] #正股价格路径
+        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0] #转债价值路径
         
         temp_K = Expired_K.values.reshape(-1,1)
         # 反向传播算法
-        for j in range(1,Price_Path.shape[1]):
-            temp_y = Expired_Value.iloc[:,-j].values * np.exp(-r/365) #向前一天贴现
-            temp_x = Expired_Price.iloc[:,-(j+1)].values
-            temp_y = temp_y.reshape(-1,1)
-            temp_x = temp_x.reshape(-1,1)
-            predict_y = self.PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
-            
-            temp_convert = temp_x*FV/temp_K
-            # 逐个元素比较持有期权的预测现价 与 转股价值的大小
-            predict_y = predict_y.reshape(-1,1)
-            temp_convert = temp_convert.reshape(-1,1)
-            
-            temp = np.zeros(predict_y.shape)
-            temp[predict_y>temp_convert] = predict_y[predict_y>temp_convert]
-            temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
-            
-            Expired_Value.iloc[:,-(j+1)] = temp
-        #计算触发赎回概率
-        #redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
-        #计算平均价格
-        mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
+        if Expired_Value.iloc[:,-1].count() != 0:
+            for j in range(1,Price_Path.shape[1]):
+                temp_y = Expired_Value.iloc[:,-j].values * np.exp(-R/365) #向前一天贴现
+                temp_x = Expired_Price.iloc[:,-(j+1)].values
+                temp_y = temp_y.reshape(-1,1)
+                temp_x = temp_x.reshape(-1,1)
+                predict_y = self.PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
+                
+                temp_convert = temp_x*FV/temp_K
+                # 逐个元素比较持有期权的预测现价 与 转股价值的大小
+                predict_y = predict_y.reshape(-1,1)
+                temp_convert = temp_convert.reshape(-1,1)
+                
+                temp = np.zeros(predict_y.shape)
+                temp[predict_y>temp_convert] = predict_y[predict_y>temp_convert]
+                temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
+                
+                Expired_Value.iloc[:,-(j+1)] = temp
+            #计算触发赎回概率
+            #redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
+            #计算平均价格
+            mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
+        else:
+            mean_value = Redeem_Value.sum()/Redeem_Value.count()
         #参数字典
         #cbond = {'赎回概率':redeem_percent,'定价':mean_value}
         return mean_value
