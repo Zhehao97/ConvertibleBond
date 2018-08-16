@@ -4,6 +4,7 @@ Created on Tue Aug  7 13:36:43 2018
 
 @author: Zhehao Li
 """
+import sys, time
 import re
 import numpy as np
 import pandas as pd
@@ -21,7 +22,7 @@ _rebuild()
 plt.rcParams['font.sans-serif'] = ['SimHei'] 
 plt.rcParams['axes.unicode_minus'] = False 
 
-
+from ShowProcess import Process
 from ConvertBond import CBond
 
 
@@ -106,7 +107,6 @@ def ComputeSigma(lsm_price,bsm_price,bond_price,cb_price,Price,Time):
     period = np.float(str(T-T0)[:-14])/365
     #确定LSM模型和BSM模型之间的比例系数
     coef = lsm_price/bsm_price
-    print(coef)
     def okfine(sigma):
         return (S0 * st.norm.cdf((np.log(S0/K) + (R + 0.5*sigma**2) * period)/(sigma * np.sqrt(period))) - K * np.exp(-R*period) * st.norm.cdf((np.log(S0/K) + (R - 0.5*sigma**2) * period)/(sigma * np.sqrt(period))))* FV/K * coef + BV - CBP
     np.random.seed(2222)
@@ -146,6 +146,8 @@ def RunModel(cbond_par,stock_data,nbond_data,now,c_price):
 ##################################################################################
 
 def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
+    max_steps = cbond_price.shape[1]
+    process_bar = Process(max_steps)
     #数据表的时间差
     diff = stock_price.shape[1]-cbond_price.shape[1]
     #建仓/平仓信号
@@ -159,8 +161,11 @@ def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
     #资产净值
     Value = pd.DataFrame(index=cbond_price.index, columns=cbond_price.columns)
     in_date = {}
+     
     #for s in range(cbond_price.shape[0]):
     for d in range(cbond_price.shape[1]):
+        process_bar.show_process()
+        time.sleep(0.01)
         #初始化参数
         now = cbond_price.columns[d]
         c_price = cbond_price.iloc[s,d] #转债当日价格
@@ -187,14 +192,15 @@ def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
             
             if Signal[s] == 0:
                 if sigma_diff >= 0.2: #建仓
+                    in_date[name] = now
                     Signal[s]=1 #将信号调整为持仓
                     #设置仓位
                     c_postion[s] = 200 
                     s_postion[s] = -200*delta*FV/K
                     #计算现金
-                    Cash[s] = Capital[s] - c_price * c_postion - s_postion*s_price
+                    Cash[s] = Capital[s] - c_price * c_postion[s] - s_price * s_postion[s]
                     #计算资本净值
-                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s]
+                    Value.iloc[s,d] = c_price*c_postion[s] + s_price*s_postion[s] + Cash[s]
                     continue
                 else:
                     continue #保留昨日收益
@@ -204,7 +210,7 @@ def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
                     period = np.float(str(now-in_date[name])[:-14]) #建仓时长
                     s_coupon = s_postion[s]*(0.08/365)*period  #融券利息
                     #平仓日资本净值
-                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s] + s_coupon
+                    Value.iloc[s,d] = c_price*c_postion[s] + s_price*s_postion[s] + Cash[s] + s_coupon
                     Capital[s] = Value.iloc[s,d] #将总资本更新为平仓后资本
                     Signal[s] = 0 #将信号设置为空仓
                     #将仓位归零
@@ -215,7 +221,7 @@ def ExecuteModel(cbond_parameter,stock_price,cbond_price,nbond_data,s):
                     period = np.float(str(now-in_date[name])[:-14]) #建仓时长
                     s_coupon = s_postion[s]*(0.08/365)*period  #融券利息
                     #计算资本净值
-                    Value.iloc[s,d] = c_price*c_postion + s_price*s_postion + Cash[s] + s_coupon
+                    Value.iloc[s,d] = c_price*c_postion[s] + s_price*s_postion[s] + Cash[s] + s_coupon
 
     return Value
 
@@ -246,7 +252,7 @@ def getFeature(return_data,risk_free=0.03):
     maxdown = getMaxDownList(Return)
     #计算年化收益率
     span = np.float(str(Return_Rate.index[-1] - Return_Rate.index[0])[:-14])/365
-    rate = (Return_Rate[-1] - 1)/span
+    rate = (Return[-1] - 1)/span
     #计算夏普比率
     sharpe_ratio = (rate - risk_free)/std #0.03六年期国债
     Feature = {'年化收益率:':rate, '夏普比率:':sharpe_ratio, '最大回撤:':maxdown}

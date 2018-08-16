@@ -5,7 +5,7 @@ Created on Tue Aug 14 14:21:58 2018
 
 @author: Zhehao Li
 """
-
+import sys, time
 import re
 import numpy as np
 import pandas as pd
@@ -55,47 +55,25 @@ cbond_parameter = cbond_parameter.drop('127005.SZ',axis=0)
 
 
 start = datetime.datetime.now()
-vv,rr = BackTracking.ExecuteModel(cbond_parameter,stock_price,cbond_price,nationbond,s=1)
+vv = BackTracking.ExecuteModel(cbond_parameter,stock_price,cbond_price,nationbond,s=3)
 end = datetime.datetime.now()
 print(end-start)
 
-
-vv.to_csv('value1.csv',encoding='UTF-8')
-rr.to_csv('return_rate1.csv',encoding='UTF-8')
+vv.to_csv('value3.csv',encoding='UTF-8')
 
 
 
 '''
-rr2 = pd.read_csv('return_rate2.csv')
-rr2 = rr2.set_index('Unnamed: 0')
-rr2 = rr2.dropna(axis=0,how='all')
+value1 = pd.read_csv('value1.csv')
+value1 = value1.set_index('Unnamed: 0')
+value1.columns = pd.DatetimeIndex(value1.columns)
 
-rr3 = pd.read_csv('return_rate3.csv')
-rr3 = rr3.set_index('Unnamed: 0')
-rr3 = rr3.dropna(axis=0,how='all')
-
-rr4 = pd.read_csv('return_rate4.csv')
-rr4 = rr4.set_index('Unnamed: 0')
-rr4 = rr4.dropna(axis=0,how='all')
-
-vv2 = pd.read_csv('2.csv')
-rr2 = rr2.set_index('Unnamed: 0')
-rr2 = rr2.dropna(axis=0,how='all')
-
-rr3 = pd.read_csv('return_rate3.csv')
-rr3 = rr3.set_index('Unnamed: 0')
-rr3 = rr3.dropna(axis=0,how='all')
-
-rr4 = pd.read_csv('return_rate4.csv')
-rr4 = rr4.set_index('Unnamed: 0')
-rr4 = rr4.dropna(axis=0,how='all')
+value1 = value1.dropna(axis=0,how='all')
 
 
-rr3+rr2
+Return_rate = value1/value1.shift(axis=1,periods=1) - 1
 
-frame = [rr2,rr3,rr4]
-return_rate = pd.concat(frame)
-return_rate.columns = pd.DatetimeIndex(return_rate.columns)
+
+BackTracking.getFeature(Return_rate.iloc[0,:])
 '''
-
 
