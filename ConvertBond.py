@@ -147,14 +147,20 @@ class CBond:
         FV = self.Price['facevalue']
         coupon_end = self.Bond_Coupon[-1]
         
-        trig_resale = self.Price['resale_trigger']
-        trig_redeem = self.Price['redeem_trigger']
+        trig_resale = self.Price['resale_trigger'] #回售触发价格
+        trig_redeem = self.Price['redeem_trigger'] #赎回触发价格
         
-        #trig_resale_num = self.Number['resale']
-        trig_redeem_num = self.Number['redeem']
-        
-        DateIndex = pd.date_range(start=now,end=self.Bond_Coupon.index[-1],freq='D')
+        if pd.isna(trig_resale): #检查回售价格是否是负数
+            trig_resale = -1000000
+            #trig_resale_num = 1000000
+            if pd.isna(trig_redeem):
+                trig_redeem = 1000000
+                trig_redeem_num = 1000000
+            else:
+                trig_redeem_num = self.Number['redeem']
+        #MonteCarlo Simulation
         Price_Path = self.MonteCarlo()
+        DateIndex = pd.date_range(start=now,end=self.Bond_Coupon.index[-1],freq='D')
         Price_Path = pd.DataFrame(data=Price_Path,columns=DateIndex)
         
         K = pd.Series(self.Price['strike'],index=Price_Path.index) #store the strike price for each path
@@ -222,11 +228,14 @@ class CBond:
         #cbond = {'赎回概率':redeem_percent,'定价':mean_value}
         return mean_value
     
-    def Summary(self):
+    def Summary(self,lsm=True):
         BSM_price = self.BSM_Model()
-        LSM_price = self.LSM_Model()
         bond_value = self.BondValue()
-        paramerter = {'BSM定价:':BSM_price,'LSM定价:':LSM_price,'债券价值:':bond_value}
+        if lsm == True:
+            LSM_price = self.LSM_Model()
+            paramerter = {'BSM定价:':BSM_price,'债券价值:':bond_value,'LSM定价:':LSM_price}
+        elif lsm == False:
+            paramerter = {'BSM定价:':BSM_price,'债券价值:':bond_value}
         return paramerter
 
 
