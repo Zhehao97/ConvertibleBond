@@ -32,9 +32,9 @@ class CBond:
     
     def RemainTime(self,T0,T,datatype):
         if datatype == 'int':
-            return np.int(str(T-T0)[:-14])
+            return max(np.int(str(T-T0)[:-14]),1)
         elif datatype == 'float':
-            return np.float(str(T-T0)[:-14])/365
+            return max(np.float(str(T-T0)[:-14])/365,1/365)
     
     
     def BondValue(self):

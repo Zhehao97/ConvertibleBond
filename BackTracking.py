@@ -43,13 +43,10 @@ def ExtractCoupon(cbond_data): #cbond_data 是 Seires类型
     end_date = pd.to_datetime(cbond_data['MATURITYDATE'])
     date_index = pd.date_range(start_date,end_date,freq='365D',closed='right')
     if len(date_index) > len(coupon) > 0:
-        print(0)
         bond_coupon = pd.Series(coupon[-1], index=date_index)
     elif len(date_index) == len(coupon):
-        print(1)
         bond_coupon = pd.Series(coupon, index=date_index)
     else:
-        print(2)
         bond_coupon = pd.Series(0.008, index=date_index)
     return bond_coupon
 
@@ -165,7 +162,7 @@ def ComputePosition(capital,delta,c_price,s_price,coef):
 
 
 def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
-    max_steps = cbond_data.shape[0]-2 #时间
+    max_steps = cbond_data.shape[1] #时间
     process_bar = Process(max_steps)
     
     diff = stock_data.shape[0]-cbond_data.shape[0]    #数据表的时间差
@@ -182,19 +179,21 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
     #Cash = np.zeros(cbond_data.shape[0])
     #资产净值
     #Value = pd.DataFrame(index=cbond_data.index, columns=cbond_data.columns)
-    Return = pd.DataFrame(index=cbond_data.index, columns=cbond_data.columns)
+    c_Return = pd.DataFrame(index=cbond_data.index, columns=cbond_data.columns)
+    s_Return = pd.DataFrame(index=cbond_data.index, columns=cbond_data.columns)
     in_date = {}
      
-    for s in range(cbond_parameter.shape[1]): #列是转债代码
+    for s in range(cbond_data.shape[1]): #列是转债代码
+        process_bar.show_process()
+        time.sleep(0.01)
         for d in range(1,cbond_data.shape[0]-1): #行是日期
-            process_bar.show_process()
-            time.sleep(0.01)
+
             #初始化参数
-            name = cbond_parameter.columns[s] #转债名称
+            name = cbond_data.columns[s] #转债名称
             now = cbond_data.index[d] #日期
             c_price = cbond_data[name][d] #转债当日价格cc
             
-            if c_price == 100 or c_price == 0:
+            if (c_price == 100 or pd.isna(c_price) or pd.isna(cbond_data[name][d-1]) or cbond_data[name][d-1]==0):
                 continue
             else:
                 #s_price = stock_data[cbond_data.columns[d]][s] #正股当日价格
@@ -204,6 +203,8 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
                 else:
                     cbond_par = cbond_parameter[name] #转债条款
                     stock_history = stock_data[name][:d+diff+1] #正股历史数据
+                    MA120 = stock_history.ewm(span=120).mean()
+                    MA60 = stock_history.ewm(span=60).mean()
                     
                     #运行定价模型计算delta和sigma
                     Par,Price = RunModel(cbond_par,stock_history,nbond_data,now,c_price,strike,lsm)
@@ -216,7 +217,7 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
                     FVK = Price['facevalue']/Price['strike']
                     
                     if Signal[s] == 0:
-                        if sigma_diff >= 0.2: #建仓
+                        if (sigma_diff >= 0.2 and MA60.values[-1]<MA120.values[-1]): #建仓
                             in_date[name] = now
                             Signal[s] = 1 #将信号调整为持仓
                             Count[s] = 1 #计数器
@@ -234,7 +235,8 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
                     
                     elif Signal[s] == 1:
                         if sigma_diff <= 0.1: #平仓
-                            Return[name][d] = (c_return * c_proportion[s] - s_return * s_proportion[s])/(c_proportion[s] + s_proportion[s])
+                            c_Return[name][d] = c_return * c_proportion[s] / (c_proportion[s] + s_proportion[s])
+                            s_Return[name][d] = - s_return * s_proportion[s] / (c_proportion[s] + s_proportion[s])
                             #period = np.float(str(now-in_date[name])[:-14]) #建仓时长
                             #s_coupon = s_principle[s]*(0.08/365)*period  #融券利息
                             #平仓日资本净值
@@ -247,7 +249,8 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
                             s_proportion[s] = 0 #将仓位归零
                             continue
                         else:
-                            Return[name][d] = (c_return * c_proportion[s] - s_return * s_proportion[s])/(c_proportion[s] + s_proportion[s])
+                            c_Return[name][d] = c_return * c_proportion[s] / (c_proportion[s] + s_proportion[s])
+                            s_Return[name][d] = - s_return * s_proportion[s] / (c_proportion[s] + s_proportion[s])
                             #period = np.float(str(now-in_date[name])[:-14]) #建仓时长
                             #s_coupon = s_principle[s]*(0.08/365)*period  #融券利息
                             #计算资本净值
@@ -257,11 +260,64 @@ def Main(cbond_parameter,stock_data,cbond_data,strike_data,nbond_data,lsm):
                                 #c_position[s],s_position[s] = ComputePosition(Capital[s],delta,c_price,s_price,FVK)
                                 c_proportion[s] = 1
                                 s_proportion[s] = c_proportion[s] * FVK * delta
-    return Return #Value
+    return c_Return,s_Return #Value
 
 ##################################################################################
 
 
+def getMaxDownList(datax):
+    maxdownlist=[]
+    for i in range(0, len(datax)):
+        temp = (max(datax[:i+1]) - datax[i])/max(datax[:i+1])
+        maxdownlist.append(temp)
+    return max(maxdownlist)
 
+
+def Performance(return_data):
+    return_avg = return_data.mean(axis=1)
+    return_avg = return_avg.fillna(0)
+    return_avg = return_avg[return_avg<1]
+
+    return_std = return_avg.std()*np.sqrt(250)
+    
+    temp_return = return_avg+1
+    return_cum = temp_return.cumprod()
+    return_cum = return_cum/return_cum[0]
+    
+    periods = np.float(str(return_cum.index[-1] - return_cum.index[0])[:-14])
+    earning = (return_cum[-1]-1)*365/periods
+    sharpe_ratio = (earning - 0.03)/return_std
+    maxdown = getMaxDownList(return_cum.values)
+    
+    performance = {'年化收益':earning,'年波动率':return_std,'夏普比率':sharpe_ratio,'最大回撤':maxdown}
+    data = {'日平均收益':return_avg,'累计收益':return_cum}
+    return performance,data
+
+
+def PerformancePlot(return_avg,return_cum,index_1,index_2,label_name,file_name):
+    b = return_cum[0]
+    c = index_1.values[0]
+    d = index_2.values[0]
+    
+    fig = plt.figure(figsize=(10,5))
+    ax1 = fig.add_subplot(111)
+    ax1.grid(False)
+    ax1.bar(return_avg.index, return_avg, width=2,linewidth=2,color='yellowgreen',label='日均收益',zorder=1)
+    ax1.set_ylabel('日均收益')
+    ax1.set_ylim(-0.2,0.2)
+    ax1.legend(loc='upper right')
+    
+    ax2 = ax1.twinx()
+    ax2.grid(True)
+    ax2.plot(index_1.index, index_1, linewidth=1,label='上证综指',zorder=5)
+    ax2.plot(index_2.index, index_2*c/d, linewidth=1,label='深证成指',zorder=6)
+    ax2.plot(return_cum.index,return_cum*c/b,color='purple',linewidth=1.5,label=label_name,zorder=7)
+    ax2.set_ylabel('指数')
+    #ax2.set_ylim(0,10000)
+    ax2.legend(loc='upper left')
+    ax2.set_xlabel('时间')
+    plt.savefig(file_name+'.jpg',dpi=1000)
+
+##################################################################################
 
 
