@@ -142,15 +142,15 @@ class CBond:
     
 
     def LSM_Model(self):
-        R = self.Price['riskfree'] #无风险贴现利率
+        R = self.Price['riskfree'] # risk free rate
         now = self.Time['now']
         FV = self.Price['facevalue']
         coupon_end = self.Bond_Coupon[-1]
         
-        trig_resale = self.Price['resale_trigger'] #回售触发价格
-        trig_redeem = self.Price['redeem_trigger'] #赎回触发价格
+        trig_resale = self.Price['resale_trigger'] # resale price trigger 
+        trig_redeem = self.Price['redeem_trigger'] # redeem price trigger
         
-        if pd.isna(trig_resale): #检查回售价格是否是负数
+        if pd.isna(trig_resale): # check if the resale price is negative
             trig_resale = -1000000
             #trig_resale_num = 1000000
             if pd.isna(trig_redeem):
@@ -168,9 +168,9 @@ class CBond:
         Expired_Value = pd.DataFrame(0,index=Price_Path.index,columns=Price_Path.columns)
         
         for path in range(Price_Path.shape[0]):
-            resale_count = 0 #统计触发回收条款的
-            redeem_count = 0 #统计触发赎回条款的次数
-            for step in range(180,Price_Path.shape[1]-1): #半年后进入转股期，遍历到倒数第二天
+            resale_count = 0 # count the number of resale triggers
+            redeem_count = 0 # count the number of resale triggers
+            for step in range(180,Price_Path.shape[1]-1):
                 S = Price_Path.iloc[path,step]
                 if S <= trig_resale:
                     resale_count = resale_count + 1
@@ -195,21 +195,21 @@ class CBond:
                 
         Redeem_Value = Redeem_Value[Redeem_Value>0]
         Expired_K = K[Expired_Value.iloc[:,-1]>0]
-        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0] #正股价格路径
-        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0] #转债价值路径
+        Expired_Price = Price_Path[Expired_Value.iloc[:,-1]>0] # stock price path
+        Expired_Value = Expired_Value[Expired_Value.iloc[:,-1]>0] # convertible bond price path
         
         temp_K = Expired_K.values.reshape(-1,1)
-        # 反向传播算法
+        
+        # backward proporagtion 
         if Expired_Value.iloc[:,-1].count() != 0:
             for j in range(1,Price_Path.shape[1]):
-                temp_y = Expired_Value.iloc[:,-j].values * np.exp(-R/365) #向前一天贴现
+                temp_y = Expired_Value.iloc[:,-j].values * np.exp(-R/365) # discounting
                 temp_x = Expired_Price.iloc[:,-(j+1)].values
                 temp_y = temp_y.reshape(-1,1)
                 temp_x = temp_x.reshape(-1,1)
-                predict_y = self.PolyRegression(temp_x,temp_y) #非线性回归后得到的预测持有价值
+                predict_y = self.PolyRegression(temp_x,temp_y) # non-linear regression to predict the price
                 
                 temp_convert = temp_x*FV/temp_K
-                # 逐个元素比较持有期权的预测现价 与 转股价值的大小
                 predict_y = predict_y.reshape(-1,1)
                 temp_convert = temp_convert.reshape(-1,1)
                 
@@ -218,13 +218,12 @@ class CBond:
                 temp[predict_y<temp_convert] = temp_convert[predict_y<temp_convert] 
                 
                 Expired_Value.iloc[:,-(j+1)] = temp
-            #计算触发赎回概率
-            #redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
-            #计算平均价格
+            # redeem_percent = Redeem_Value.count()/Price_Path.shape[0]
+            # calclulate mean price
             mean_value = (Redeem_Value.sum() + Expired_Value.iloc[:,0].sum())/Price_Path.shape[0]
         else:
             mean_value = Redeem_Value.sum()/Redeem_Value.count()
-        #参数字典
+            
         #cbond = {'赎回概率':redeem_percent,'定价':mean_value}
         return mean_value
     
